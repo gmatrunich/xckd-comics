@@ -12,27 +12,36 @@ CURRENT_COMIC_URL = 'https://xkcd.com/info.0.json'
 
 def choose_random_image():
     response = requests.request('GET', CURRENT_COMIC_URL)
+    response.raise_for_status()
     comic = response.json()
     return random.randint(1, comic['num'])
 
 
-def get_image_url_and_comment(image_num):
+def get_image_url(image_num):
     comic_url = COMIC_URL_TEMPLATE.format(image_num)
     response = requests.request('GET', comic_url)
+    response.raise_for_status()
     comic = response.json()
     image_url = comic['img']
+    return image_url
+
+
+def get_image_comment(image_num):
+    comic_url = COMIC_URL_TEMPLATE.format(image_num)
+    response = requests.request('GET', comic_url)
+    response.raise_for_status()
+    comic = response.json()
     image_comment = comic['alt']
-    return image_url, image_comment
+    return image_comment
 
 
-def download_random_comic():
-    image_url, image_comment = get_image_url_and_comment(choose_random_image())
+def download_random_comic(image_url):
     response = requests.get(image_url)
     response.raise_for_status()
     filename = image_url[image_url.rfind("/")+1:]
     with open(filename, 'wb') as file:
         file.write(response.content)
-    return filename, image_comment
+    return filename
 
 
 def get_url_for_uploading_image(token):
@@ -47,21 +56,18 @@ def get_url_for_uploading_image(token):
     return wall_upload_server['response']['upload_url']
 
 
-def upload_image(token):
-    filename, image_comment = download_random_comic()
+def upload_image(filename, upload_url, token):
     with open(filename, 'rb') as file:
         files = {
             'photo': file,
         }
-        response = requests.post(get_url_for_uploading_image(token), files=files)
+        response = requests.post(upload_url, files=files)
         response.raise_for_status()
         image_upload_result = response.json()
-    os.remove(filename)
-    return image_upload_result['server'], image_upload_result['photo'], image_upload_result['hash'], image_comment
+    return image_upload_result['server'], image_upload_result['photo'], image_upload_result['hash']
 
 
-def save_image_in_group_album(token):
-    uploaded_image_server, uploaded_photo, uploaded_hash, image_comment = upload_image(token)
+def save_image_in_group_album(uploaded_image_server, uploaded_photo, uploaded_hash, token):
     url = '{}{}'.format(VK_ENTRY_API_URL, "photos.saveWallPhoto")
     payload = {
         'v': VK_API_VERSION,
@@ -74,11 +80,10 @@ def save_image_in_group_album(token):
     response.raise_for_status()
     saved_image_result = response.json()
     for image in saved_image_result['response']:
-        return image['id'], image['owner_id'], image_comment
+        return image['id'], image['owner_id']
 
 
-def publish_image(token, group_id):
-    image_id, owner_id, image_comment = save_image_in_group_album(token)
+def publish_image(image_id, owner_id, group_id, image_comment, token):
     attachments = "photo{}_{}".format(owner_id, image_id)
     url = '{}{}'.format(VK_ENTRY_API_URL, "wall.post")
     payload = {
@@ -91,11 +96,22 @@ def publish_image(token, group_id):
     response = requests.post(url, params=payload)
     response.raise_for_status()
     server_answer = response.json()
-    print(server_answer)
 
 
 if __name__ == '__main__':
     load_dotenv()
     token = os.getenv("ACCESS_TOKEN")
     group_id = os.getenv("GROUP_ID")
-    publish_image(token, group_id)
+    random_image_num = choose_random_image()
+    image_url = get_image_url(random_image_num)
+    image_comment = get_image_comment(random_image_num)
+    filename = download_random_comic(image_url)
+    try:
+        upload_url = get_url_for_uploading_image(token)
+        uploaded_image_server, uploaded_photo, uploaded_hash = upload_image(filename, upload_url, token)
+        image_id, owner_id = save_image_in_group_album(uploaded_image_server, uploaded_photo, uploaded_hash, token)
+        publish_image(image_id, owner_id, group_id, image_comment, token)
+    except requests.exceptions.HTTPError as error:
+        print('Поймали ошибку: ', error)
+    finally:
+        os.remove(filename)
