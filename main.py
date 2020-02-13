@@ -51,7 +51,7 @@ def get_url_for_uploading_image(token):
         'access_token': token,
     }
     response = requests.post(url, params=payload)
-    response.raise_for_status()
+    check_for_vk_errors(response)
     wall_upload_server = response.json()
     return wall_upload_server['response']['upload_url']
 
@@ -62,7 +62,7 @@ def upload_image(filename, upload_url, token):
             'photo': file,
         }
         response = requests.post(upload_url, files=files)
-        response.raise_for_status()
+        check_for_vk_errors(response)
         image_upload_result = response.json()
     return image_upload_result['server'], image_upload_result['photo'], image_upload_result['hash']
 
@@ -77,7 +77,7 @@ def save_image_in_group_album(uploaded_image_server, uploaded_photo, uploaded_ha
         'hash': uploaded_hash,
     }
     response = requests.post(url, params=payload)
-    response.raise_for_status()
+    check_for_vk_errors(response)
     saved_image_result = response.json()
     for image in saved_image_result['response']:
         return image['id'], image['owner_id']
@@ -94,8 +94,14 @@ def publish_image(image_id, owner_id, group_id, image_comment, token):
         'message': image_comment,
     }
     response = requests.post(url, params=payload)
-    response.raise_for_status()
+    check_for_vk_errors(response)
     server_answer = response.json()
+
+
+def check_for_vk_errors(response):
+    json_data = response.json()
+    if 'error' in json_data:
+        raise requests.exceptions.HTTPError(json_data['error'])
 
 
 if __name__ == '__main__':
